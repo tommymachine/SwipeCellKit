@@ -84,30 +84,37 @@ public struct SwipeExpansionStyle {
         self.completionAnimation = completionAnimation
     }
     
+    var targetMargin: CGFloat = 0.5
+    
     func shouldExpand(view: Swipeable, gesture: UIPanGestureRecognizer, in superview: UIView, within frame: CGRect? = nil) -> Bool {
         guard let actionsView = view.actionsView, let gestureView = gesture.view else { return false }
         guard abs(gesture.translation(in: gestureView).x) > minimumExpansionTranslation else { return false }
     
-        let xDelta = floor(abs(frame?.minX ?? view.frame.minX))
-        if xDelta <= actionsView.preferredWidth {
-            return false
-        } else if xDelta > targetOffset(for: view) {
-            return true
-        }
-        
-        // Use the frame instead of superview as Swipeable may not be full width of superview
-        let referenceFrame: CGRect = frame != nil ? view.frame : superview.bounds
-        for trigger in additionalTriggers {
-            if trigger.isTriggered(view: view, gesture: gesture, in: superview, referenceFrame: referenceFrame) {
-                return true
-            }
-        }
-        
-        return false
+        let startingPointX = gesture.location(in: gestureView).x - gesture.translation(in: gestureView).x
+        let xDeltaValue = frame?.minX ?? view.frame.minX
+        let beginningTouchInset = xDeltaValue > 0 ? startingPointX : (frame?.width ?? view.frame.width) - startingPointX
+        let xDelta = floor(abs(xDeltaValue))
+        let marginModifier = actionsView.expanded ? targetMargin : -targetMargin
+        return xDelta + marginModifier > targetOffset(for: view, startX: beginningTouchInset)
+//        if xDelta <= actionsView.preferredWidth {
+//            return false
+//        } else if xDelta > targetOffset(for: view) {
+//            return true
+//        }
+//
+//        // Use the frame instead of superview as Swipeable may not be full width of superview
+//        let referenceFrame: CGRect = frame != nil ? view.frame : superview.bounds
+//        for trigger in additionalTriggers {
+//            if trigger.isTriggered(view: view, gesture: gesture, in: superview, referenceFrame: referenceFrame) {
+//                return true
+//            }
+//        }
+//
+//        return false
     }
     
-    func targetOffset(for view: Swipeable) -> CGFloat {
-        return target.offset(for: view, minimumOverscroll: minimumTargetOverscroll)
+    func targetOffset(for view: Swipeable, startX: CGFloat) -> CGFloat {
+        return target.offset(for: view, minimumOverscroll: minimumTargetOverscroll, startX: startX)
     }
 }
 
@@ -120,17 +127,29 @@ extension SwipeExpansionStyle {
         /// The target is specified by a edge inset.
         case edgeInset(CGFloat)
         
-        func offset(for view: Swipeable, minimumOverscroll: CGFloat) -> CGFloat {
+        func offset(for view: Swipeable, minimumOverscroll: CGFloat, startX: CGFloat) -> CGFloat {
             guard let actionsView = view.actionsView else { return .greatestFiniteMagnitude }
             
-            let offset: CGFloat = {
-                switch self {
-                case .percentage(let value):
-                    return view.frame.width * value
-                case .edgeInset(let value):
-                    return view.frame.width - value
+            let maxPercentage: CGFloat = {switch self {
+            case .percentage(let value): return value
+            default: return 0.8
                 }
             }()
+            let maxOffset: CGFloat = 20
+            let percentageOffset = view.frame.width * maxPercentage
+            let centerX = view.frame.width/2
+            let edgeOffset = centerX - maxOffset
+            let startPercentage = startX / centerX
+            let offset = startPercentage * (percentageOffset - edgeOffset) + centerX - startX
+            
+//            let offset: CGFloat = {
+//                switch self {
+//                case .percentage(let value):
+//                    return view.frame.width * value
+//                case .edgeInset(let value):
+//                    return view.frame.width - value
+//                }
+//            }()
             
             return max(actionsView.preferredWidth + minimumOverscroll, offset)
         }
