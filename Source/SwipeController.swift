@@ -66,16 +66,30 @@ class SwipeController: NSObject {
         didSet {
             if !hasExpanded {
                 expansionOffset = 0
+                expansionOffsetTime = nil
             }
         }
     }
     var expansionOffset: CGFloat = 0 {
-        didSet {print("expansion offset", expansionOffset)}
+        didSet {/*print("expansion offset", expansionOffset);*/ expansionOffsetTime = Date()}
     }
+    var expansionOffsetTime: Date?
+    var timeSinceExpansionOffset: Double {
+        guard let offsetTime = expansionOffsetTime else {return Double.greatestFiniteMagnitude}
+        return Date().timeIntervalSinceReferenceDate - offsetTime.timeIntervalSinceReferenceDate
+    }
+    var shouldAllowExpansionToggling: Bool {
+        return timeSinceExpansionOffset >= 0.3
+    }
+    
+    var lastTranslationX: CGFloat = 0
+    var expansionProgress: Double = 0
+    
+    var displayLinkAnimator: DisplayLinkAnimator?
 
     @objc func handlePan(gesture: UIPanGestureRecognizer) {
         guard let target = actionsContainerView, var swipeable = self.swipeable else { return }
-        
+    
         let velocity = gesture.velocity(in: target)
         
         if delegate?.swipeController(self, canBeginEditingSwipeableFor: velocity.x > 0 ? .left : .right) == false {
@@ -111,59 +125,82 @@ class SwipeController: NSObject {
             let translation = gesture.translation(in: target).x
             scrollRatio = 1.0
             
-            // Check if dragging past the center of the opposite direction of action view, if so
-            // then we need to apply elasticity
-            if (translation + originalCenter - swipeable.bounds.midX) * actionsView.orientation.scale > 0 {
-                target.center.x = gesture.elasticTranslation(in: target,
-                                                             withLimit: .zero,
-                                                             fromOriginalCenter: CGPoint(x: originalCenter, y: 0)).x
-                swipeable.actionsView?.visibleWidth = abs((swipeable as Swipeable).frame.minX)
-                scrollRatio = elasticScrollRatio
-                return
-            }
-            
-            if let expansionStyle = actionsView.options.expansionStyle, let scrollView = scrollView {
-                
-                let referenceFrame = actionsContainerView != swipeable ? actionsContainerView.frame : nil;
-                let expanded = expansionStyle.shouldExpand(view: swipeable, gesture: gesture, in: scrollView, within: referenceFrame)
-                
-                let startingPointX = gesture.location(in: gesture.view!).x - gesture.translation(in: gesture.view!).x
-                let beginningTouchInset = gesture.translation(in: gesture.view!).x > 0 ? startingPointX : swipeable.bounds.width - startingPointX
-                
-                let targetOffset = expansionStyle.targetOffset(for: swipeable, startX: beginningTouchInset)
-                let currentOffset = abs(translation + originalCenter - swipeable.bounds.midX)
-                
-                if expanded && !actionsView.expanded && targetOffset > currentOffset {
-                    let centerForTranslationToEdge = swipeable.bounds.midX - expansionOffset - targetOffset * actionsView.orientation.scale
-                    let delta = centerForTranslationToEdge - originalCenter
-                    
-                    animate(toOffset: centerForTranslationToEdge + expansionOffset)
-                    gesture.setTranslation(CGPoint(x: delta, y: 0), in: swipeable.superview!)
-                } else {
-                    let expansionModifier = expansionOffset
+            func updatePosition() {
+                // Check if dragging past the center of the opposite direction of action view, if so
+                // then we need to apply elasticity
+                if (translation + originalCenter /*+ expansionOffset*/ - swipeable.bounds.midX) * actionsView.orientation.scale > 0 {
                     target.center.x = gesture.elasticTranslation(in: target,
-                                                                 withLimit: CGSize(width: targetOffset, height: 0),
-                                                                 fromOriginalCenter: CGPoint(x: originalCenter + expansionModifier, y: 0),
-                                                                 applyingRatio: expansionStyle.targetOverscrollElasticity).x
-                    swipeable.actionsView?.visibleWidth = abs(actionsContainerView.frame.minX)
+                                                                 withLimit: .zero,
+                                                                 fromOriginalCenter: CGPoint(x: originalCenter, y: 0)).x
+                    swipeable.actionsView?.visibleWidth = abs((swipeable as Swipeable).frame.minX)
+                    scrollRatio = elasticScrollRatio
+                    return
                 }
-                if expanded {hasExpanded = true
-                    if !actionsView.expanded {
-                        expansionOffset = -(beginningTouchInset + currentOffset).increasingAbsolutely(by: 16)
+                
+                if let expansionStyle = actionsView.options.expansionStyle, let scrollView = scrollView {
+                    
+                    let referenceFrame = actionsContainerView != swipeable ? actionsContainerView.frame : nil;
+                    let expanded = expansionStyle.shouldExpand(view: swipeable, gesture: gesture, in: scrollView, within: referenceFrame, offset: CGFloat(expansionProgress) * expansionOffset)
+                    
+                    let startingPointX = gesture.location(in: gesture.view!.superview).x - gesture.translation(in: gesture.view!.superview).x
+                    let beginningTouchInset = gesture.translation(in: gesture.view!).x > 0 ? startingPointX : swipeable.bounds.width - startingPointX
+                    
+                    let targetOffset = expansionStyle.targetOffset(for: swipeable, startX: beginningTouchInset) + CGFloat(expansionProgress) * abs(expansionOffset)
+                    let currentOffset = abs(translation + originalCenter - swipeable.bounds.midX)
+                    
+                    if expanded && !actionsView.expanded && targetOffset > currentOffset {
+                        let centerForTranslationToEdge = swipeable.bounds.midX /*- expansionOffset*/ - targetOffset * actionsView.orientation.scale
+                        let delta = centerForTranslationToEdge - (originalCenter /*+ expansionOffset*/)
+                        
+                        animate(toOffset: centerForTranslationToEdge /*+ expansionOffset*/)
+                        //gesture.setTranslation(CGPoint(x: delta, y: 0), in: swipeable.superview!)
+                    } else {
+                        target.center.x = gesture.elasticTranslation(in: target,
+                                                                     withLimit: CGSize(width: targetOffset, height: 0),
+                                                                     fromOriginalCenter: CGPoint(x: originalCenter /*+ expansionModifier*/, y: 0),
+                                                                     applyingRatio: expansionStyle.targetOverscrollElasticity).x
+                        swipeable.actionsView?.visibleWidth = abs(actionsContainerView.frame.minX)
+                    }
+                    if expanded, !hasExpanded {hasExpanded = true
+                        if !actionsView.expanded {
+                            let maxPercentage: CGFloat = {switch expansionStyle.target {
+                            case .percentage(let value): return value
+                            default: return 0.8
+                                }
+                            }()
+                            expansionOffset = (translation > 0 ? 1 : -1) * (beginningTouchInset*maxPercentage).increasingAbsolutely(by: 20 * (1 - beginningTouchInset / swipeable.bounds.midX) * maxPercentage)
+                            let startingCenter = originalCenter
+                            let velocity = Double(swipeable.bounds.width * maxPercentage)
+                            let duration = Double(abs(expansionOffset)) / velocity
+                            displayLinkAnimator = DisplayLinkAnimator(with: duration) {progress in
+                                print("progress", progress)
+                                self.expansionProgress = progress
+                                self.originalCenter = startingCenter + CGFloat(progress) * self.expansionOffset
+                                updatePosition()
+                            }
+                            
+                            actionsView.setExpanded(expanded: expanded, feedback: true)
+                            // actionsView.setExpanded(expanded: expanded, feedback: true)
+                            // originalCenter/*expansionOffset*/ = originalCenter + expansionOffset
+                        }
+                    }
+                    if shouldAllowExpansionToggling {//&& abs(lastTranslationX - translation) >= expansionStyle.minimumExpansionTranslation {
+                        lastTranslationX = translation
+                        actionsView.setExpanded(expanded: expanded, feedback: true)
+                    }
+                } else {
+                    target.center.x = gesture.elasticTranslation(in: target,
+                                                                 withLimit: CGSize(width: actionsView.preferredWidth, height: 0),
+                                                                 fromOriginalCenter: CGPoint(x: originalCenter /*+ expansionOffset*/, y: 0),
+                                                                 applyingRatio: elasticScrollRatio).x
+                    swipeable.actionsView?.visibleWidth = abs(actionsContainerView.frame.minX)
+                    
+                    if (target.center.x - originalCenter) / translation != 1.0 {
+                        scrollRatio = elasticScrollRatio
                     }
                 }
-                actionsView.setExpanded(expanded: expanded, feedback: true)
-            } else {
-                target.center.x = gesture.elasticTranslation(in: target,
-                                                             withLimit: CGSize(width: actionsView.preferredWidth, height: 0),
-                                                             fromOriginalCenter: CGPoint(x: originalCenter, y: 0),
-                                                             applyingRatio: elasticScrollRatio).x
-                swipeable.actionsView?.visibleWidth = abs(actionsContainerView.frame.minX)
-                
-                if (target.center.x - originalCenter) / translation != 1.0 {
-                    scrollRatio = elasticScrollRatio
-                }
             }
+            updatePosition()
         case .ended, .cancelled, .failed: hasExpanded = false
             guard let actionsView = swipeable.actionsView, let actionsContainerView = self.actionsContainerView else { return }
             if swipeable.state.isActive == false && swipeable.bounds.midX == target.center.x  {
@@ -172,14 +209,14 @@ class SwipeController: NSObject {
             
             swipeable.state = targetState(forVelocity: velocity)
             
-            if actionsView.expanded == true, let expandedAction = actionsView.expandableAction  {
+            if actionsView.expanded == true, let expandedAction = actionsView.expandableAction, swipeable.state != .center  {
                 perform(action: expandedAction)
             } else {
                 let targetOffset = targetCenter(active: swipeable.state.isActive)
                 let distance = targetOffset - actionsContainerView.center.x
                 let normalizedVelocity = velocity.x * scrollRatio / distance
                 
-                animate(toOffset: targetOffset + expansionOffset, withInitialVelocity: normalizedVelocity) { _ in
+                animate(toOffset: targetOffset /*+ expansionOffset*/, withInitialVelocity: normalizedVelocity) { _ in
                     if self.swipeable?.state == .center {
                         self.reset()
                     }
@@ -334,7 +371,7 @@ class SwipeController: NSObject {
         
         switch actionsView.orientation {
         case .left:
-            return (velocity.x < 0 && !actionsView.expanded) ? .center : .left
+            return (velocity.x < 0 || !actionsView.expanded) ? .center : .left
         case .right:
             return (velocity.x > 0 && !actionsView.expanded) ? .center : .right
         }
@@ -529,7 +566,7 @@ extension SwipeController: SwipeActionsViewDelegate {
         let targetCenter = abs(offset) == CGFloat.greatestFiniteMagnitude ? self.targetCenter(active: true) : swipeable.bounds.midX + maxOffset
         
         if animated {
-            animate(toOffset: targetCenter + expansionOffset) { complete in
+            animate(toOffset: targetCenter /*+ expansionOffset*/) { complete in
                 completion?(complete)
             }
         } else {

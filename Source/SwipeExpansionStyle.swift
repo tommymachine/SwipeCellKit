@@ -86,15 +86,17 @@ public struct SwipeExpansionStyle {
     
     var targetMargin: CGFloat = 0.5
     
-    func shouldExpand(view: Swipeable, gesture: UIPanGestureRecognizer, in superview: UIView, within frame: CGRect? = nil) -> Bool {
+    func shouldExpand(view: Swipeable, gesture: UIPanGestureRecognizer, in superview: UIView, within frame: CGRect? = nil, offset: CGFloat = 0.0) -> Bool {
         guard let actionsView = view.actionsView, let gestureView = gesture.view else { return false }
         guard abs(gesture.translation(in: gestureView).x) > minimumExpansionTranslation else { return false }
     
-        let startingPointX = gesture.location(in: gestureView).x - gesture.translation(in: gestureView).x
+        let startingPointX = gesture.location(in: gestureView.superview).x - gesture.translation(in: gestureView.superview).x
         let xDeltaValue = frame?.minX ?? view.frame.minX
         let beginningTouchInset = xDeltaValue > 0 ? startingPointX : (frame?.width ?? view.frame.width) - startingPointX
-        let xDelta = floor(abs(xDeltaValue))
+        let xDelta = floor(abs(xDeltaValue)) - abs(offset)
         let marginModifier = actionsView.expanded ? targetMargin : -targetMargin
+        
+        //print("startingPointX", startingPointX, "beginningTouchInset", beginningTouchInset, "translation", gesture.translation(in: gestureView).x, "location", gesture.location(in: gestureView).x)
         return xDelta + marginModifier > targetOffset(for: view, startX: beginningTouchInset)
 //        if xDelta <= actionsView.preferredWidth {
 //            return false
@@ -135,13 +137,18 @@ extension SwipeExpansionStyle {
             default: return 0.8
                 }
             }()
-            let maxOffset: CGFloat = 20
-            let percentageOffset = view.frame.width * maxPercentage
-            let centerX = view.frame.width/2
-            let edgeOffset = centerX - maxOffset
-            let startPercentage = startX / centerX
-            let offset = startPercentage * (percentageOffset - edgeOffset) + centerX - startX
-            
+            var offset: CGFloat
+            if maxPercentage > 0.5 {
+                let maxOffset: CGFloat = 20
+                let percentageOffset = view.frame.width * maxPercentage
+                let centerX = view.frame.width/2
+                let edgeOffset = centerX - maxOffset
+                let startPercentage = startX / centerX
+                offset = percentageOffset - startPercentage * (percentageOffset - edgeOffset)
+            } else {
+                offset = view.frame.width * maxPercentage
+            }//+ startX//+ centerX - startX
+            // print("startPercentage", startPercentage, "offset", offset, "startX", startX)
 //            let offset: CGFloat = {
 //                switch self {
 //                case .percentage(let value):
