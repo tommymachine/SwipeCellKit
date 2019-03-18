@@ -26,7 +26,9 @@ class DisplayLinkAnimator {
         if startTimeStamp == nil {
             startTimeStamp = link.timestamp
         }
-        animations(progress)
+        
+        animations(timingFunction.solve(progress))
+        
         if progress >= 1 {
             stopLink()
         }
@@ -47,5 +49,7 @@ class DisplayLinkAnimator {
         self.animations = animations
         startLink()
     }
+    
+    var timingFunction = Cubic.easeInOut.timingFunction
     
 }

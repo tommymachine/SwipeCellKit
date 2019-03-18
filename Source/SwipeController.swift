@@ -102,6 +102,11 @@ class SwipeController: NSObject {
                 return
             }
             
+            guard abs(velocity.x) > abs(velocity.y) else {
+                gesture.state = .failed
+                return
+            }
+            
             stopAnimatorIfNeeded()
             
             originalCenter = target.center.x
@@ -170,7 +175,7 @@ class SwipeController: NSObject {
                             }()
                             expansionOffset = (translation > 0 ? 1 : -1) * (beginningTouchInset*maxPercentage).increasingAbsolutely(by: 20 * (1 - beginningTouchInset / swipeable.bounds.midX) * maxPercentage)
                             let startingCenter = originalCenter
-                            let velocity = Double(swipeable.bounds.width * maxPercentage)
+                            let velocity = Double(swipeable.bounds.width * maxPercentage)*3/4
                             let duration = Double(abs(expansionOffset)) / velocity
                             displayLinkAnimator = DisplayLinkAnimator(with: duration) {progress in
                                 print("progress", progress)
