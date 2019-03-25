@@ -148,7 +148,7 @@ class SwipeController: NSObject {
                     let expanded = expansionStyle.shouldExpand(view: swipeable, gesture: gesture, in: scrollView, within: referenceFrame, offset: CGFloat(expansionProgress) * expansionOffset)
                     
                     let startingPointX = gesture.location(in: gesture.view!.superview).x - gesture.translation(in: gesture.view!.superview).x
-                    let beginningTouchInset = gesture.translation(in: gesture.view!).x > 0 ? startingPointX : swipeable.bounds.width - startingPointX
+                    let beginningTouchInset = gesture.translation(in: gesture.view!.superview).x > 0 ? startingPointX : swipeable.bounds.width - startingPointX
                     
                     let targetOffset = expansionStyle.targetOffset(for: swipeable, startX: beginningTouchInset) + CGFloat(expansionProgress) * abs(expansionOffset)
                     let currentOffset = abs(translation + originalCenter - swipeable.bounds.midX)
@@ -205,8 +205,10 @@ class SwipeController: NSObject {
                     }
                 }
             }
-            updatePosition()
-        case .ended, .cancelled, .failed: hasExpanded = false
+            if !(displayLinkAnimator?.isRunning ?? false) {
+                updatePosition()
+            }
+        case .ended, .cancelled, .failed: hasExpanded = false; displayLinkAnimator?.stopLink()
             guard let actionsView = swipeable.actionsView, let actionsContainerView = self.actionsContainerView else { return }
             if swipeable.state.isActive == false && swipeable.bounds.midX == target.center.x  {
                 return

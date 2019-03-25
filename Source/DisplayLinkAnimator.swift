@@ -34,14 +34,18 @@ class DisplayLinkAnimator {
         }
     }
     
+    var isRunning: Bool {//print("progress",progress)
+        return !link.isPaused && progress < 1
+    }
+    
     func startLink() {
         link = CADisplayLink(target: self, selector: #selector(linkFired))
         link.add(to: .main, forMode: .common)
     }
     
     func stopLink() {
+        link.isPaused = true
         link.invalidate()
-        link.remove(from: .main, forMode: .common)
     }
     
     init(with duration: Double, animations: @escaping (Double) -> Void) {

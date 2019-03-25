@@ -84,7 +84,7 @@ public struct SwipeExpansionStyle {
         self.completionAnimation = completionAnimation
     }
     
-    var targetMargin: CGFloat = 0.5
+    var targetMargin: CGFloat = 1.75
     
     func shouldExpand(view: Swipeable, gesture: UIPanGestureRecognizer, in superview: UIView, within frame: CGRect? = nil, offset: CGFloat = 0.0) -> Bool {
         guard let actionsView = view.actionsView, let gestureView = gesture.view else { return false }
